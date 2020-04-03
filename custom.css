@@ -1,0 +1,44 @@
+
+.glance-header {
+    height: 65px;
+    background-color: white;
+    margin-bottom: 15px;
+    width: 50.5vh;
+    margin-left: 0.35em;
+    border-radius: 5px;
+    font-size: 3em;
+    text-align: center;
+    box-shadow: 0px 0px 6px 0px rgba(68,68,68,0.6);
+}
+
+#glance_info_boxes .info-box-text, #today_info_boxes .info-box-text, #select_country .info-box-text{
+    font-size: 1.2em;
+}
+
+#glance_info_boxes .info-box-number, #today_info_boxes .info-box-number, #select_country .info-box-number{
+    font-size: 2em;
+}
+
+#glance_info_boxes .info-box-number #Total_death {
+    color: #dc0825;
+}
+
+#glance_info_boxes .info-box-number #Total_recovered {
+    color: green;
+}
+
+#world_data .box-title {
+    font-size: 2em;
+}
+
+#full_table #DataTables_Table_0_wrapper {
+    font-family: sans-serif;
+}
+
+.selectize-input .items .has-options .full .has-items {
+    font-size: 1.2em;
+}
+
+#cases_map.leaflet.html-widget.html-widget-output.shiny-bound-output.leaflet-container {
+    height: calc(100vh - 150px) !important;
+}
