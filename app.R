@@ -34,24 +34,26 @@ library(lubridate)
 #Load only Once
 long_lat_data <- read_csv("datasets/lat_long_country.csv")
 dt<-read_csv(paste0(getwd(),"/datasets/time_series_covid19_confirmed_global.csv"))
+dt_death<-read_csv(paste0(getwd(),"/datasets/time_series_covid19_deaths_global.csv"))
 
 header <- dashboardHeader(
   title = "Covid19 - Live Tracker"
 )
 
 sidebar <- dashboardSidebar(
-  sidebarMenu(
+  sidebarMenu(class='sidebar',
     menuItem("Overview", tabName = "Overview", icon = icon("dashboard")),
     menuItem("Today", icon = icon("th"), tabName = "Today"),
     menuItem("Map", icon = icon("map"), tabName = "Map"),
-    menuItem("Progression", icon = icon("chart-bar"), tabName = "Progression")
+    menuItem("Progression", icon = icon("chart-bar"), tabName = "Progression"),
+    menuItem("Incremental Change", icon = icon("calendar"), tabName = "WeeklyChange")
   )
 )
 
 body <- dashboardBody(
   tags$head(
     tags$link(rel = "stylesheet", type = "text/css", href = "custom.css")
-    #tags$link(rel = "stylesheet", type = "text/css", href = "fontawesome.css")
+    #tags$link(rel = "stylesheet", type = "text/css", href = "material-dashboard.css")
   ),
   fluidPage(
     fluidRow(
@@ -67,11 +69,11 @@ body <- dashboardBody(
                  ),
                  fluidRow(
                    id="world_data" ,
-                   box(title = "World's Data", DT::dataTableOutput("full_table") ,solidHeader = T, height = NULL, width = 12)
+                   box(DT::dataTableOutput("full_table") ,solidHeader = T, height = NULL, width = 12)
                  ),
                  fluidRow(
                    id="reference" ,
-                   box(title = "Scraping from worldometers.info/coronavirus/", solidHeader = T, height = NULL, width = 12)
+                   box(title = "Scraping from worldometers.info/coronavirus/ and Hopkins dataset", solidHeader = T, height = NULL, width = 12)
                  )
                  
          ),
@@ -103,20 +105,48 @@ body <- dashboardBody(
          ),
          tabItem(tabName = "Progression",
           fluidRow(
-            id="progress_line",
-            h2("Total Cases Until Yesterday"),
+            column(width = 12,
             selectInput("countrySelectProgress",
-                        multiple = T,selectize = T, choices = NULL, label = "Select"),
-            plotlyOutput("plot_by_coutry_total_cases")
+                        multiple = T,selectize = T, choices = NULL, label = "Select")
+          )),
+          fluidRow(
+            column(width = 6,
+              id="progress_line",
+              plotlyOutput("plot_by_coutry_total_cases")
+            ),
+            column(width = 6,
+               id="progress_line_death",
+               div(class='bottom-margin'),
+               plotlyOutput("plot_by_coutry_total_death")
+            )
           )     
+         ),
+         tabItem(
+           tabName = "WeeklyChange",
+           fluidRow(
+             column(
+               width = 6,
+               selectInput("countrySelectCycle",
+                           multiple = F,selectize = T, choices = NULL, label = "Select")
+             ),
+             column(width = 6,
+                    radioButtons(inputId="timecycle", label = "Cycle", 
+                                 choices = c("Weekly"="Weekly", "Monthly"="Monthly"),
+                                 selected = "Weekly")
+           ),
+           fluidRow(
+             column(width = 12,
+                    id = "weekly_chage",
+                    plotlyOutput("plot_by_change")
+              )
+           )
          )
        )
       )
     )
   )
 )
-
-
+)
 
 ui <- dashboardPage(header, sidebar, body)
 
@@ -143,6 +173,7 @@ server <- function(input, output, session) {
   main_table <- html_node(content, '#main_table_countries_today')
   # Get and Clean data
   records <- html_table(x = main_table, header = NA)
+  records_to_show_table <- records
   records$TotalCases <-  as.integer(gsub("\\,", "", records$TotalCases))
   records$NewCases <-  (gsub("\\,", "", records$NewCases))
   records$NewDeaths <-  as.integer(gsub("\\+", "", records$NewDeaths))
@@ -151,12 +182,12 @@ server <- function(input, output, session) {
   records$TotalRecovered <-  as.integer(gsub("\\,", "", records$TotalRecovered))
   
   #Cleansing the data
-  records <- select(records, -10,-7:-9)
+  records <- select(records, -7:-12)
   records[is.na(records)] <- 0
-  records <- records[-nrow(records),]
+  records <- records[!(records$`Country,Other` == 'World' | records$`Country,Other` == 'Total:' ),]
   names(records)[names(records)=="Country,Other"] <- "Country"
   rownames(records) <- NULL
-
+  
   #Get the location data
   #orig_records <- records
   orig_records <- records %>% left_join(long_lat_data, by=c("Country"="Country_Name_To_Use"))
@@ -202,7 +233,20 @@ server <- function(input, output, session) {
   temp_dt <- gathered_dt[!duplicated(gathered_dt),]
   total_confirm_cases_by_day <- temp_dt %>% group_by(`Country/Region`, Date) %>% summarise(Total_Cases = sum(`Total Confirmed Cases`))
   total_confirm_cases_by_day$Date <- mdy(total_confirm_cases_by_day$Date)
-  
+  total_confirm_cases_by_day <- total_confirm_cases_by_day %>% mutate(Weekly = (week(Date)), Wday = wday(Date, label = T), Monthly = month(Date, label=T))
+  total_confirm_cases_by_day$Weekly <- as.factor(total_confirm_cases_by_day$Weekly)
+  total_confirm_cases_by_day$Wday <- as.factor(total_confirm_cases_by_day$Wday)
+  total_confirm_cases_by_day$Monthly <- as.factor(total_confirm_cases_by_day$Monthly)
+  #total_confirm_cases_by_day %>% View()
+  #Death
+  gathered_death_dt <- gather(dt_death, "Date", "Total Confirmed Death", -1)
+  temp_death_dt <- gathered_death_dt[!duplicated(gathered_death_dt),]
+  total_death_cases_by_day <- temp_death_dt %>% group_by(`Country/Region`, Date) %>% summarise(Total_Death = sum(`Total Confirmed Death`))
+  total_death_cases_by_day$Date <- mdy(total_death_cases_by_day$Date)
+  total_death_cases_by_day <- total_death_cases_by_day %>% mutate(week = (week(Date)-3), wday = wday(Date, label = T), Month = month(Date, label=F))
+  total_death_cases_by_day$week <- as.factor(total_death_cases_by_day$week)
+  total_death_cases_by_day$wday <- as.factor(total_death_cases_by_day$wday)
+  total_death_cases_by_day$Month <- as.factor(total_death_cases_by_day$Month)
   
   #Country with Maximum Case Today
   temp_df <- records %>% filter(NewCases == max(NewCases))
@@ -211,6 +255,9 @@ server <- function(input, output, session) {
   temp_df_death <- records %>% filter(NewDeaths == max(NewDeaths))
   country_name_max_death <- temp_df_death$Country 
   count_of_new_death <- unique(temp_df_death$NewDeaths)
+  
+  #Cylce
+  
   
   #All the values
   total_cases <- formatC(sum(records$TotalCases), format = "d", big.mark = ",")
@@ -227,32 +274,22 @@ server <- function(input, output, session) {
   output$Total_death <- renderText(total_death)
   output$Total_recovered <- renderText(total_recovered)
   output$Total_recovered_percent <- renderText(total_reco_percent)
-  output$full_table <- DT::renderDataTable({records}, rownames = FALSE, options = list(
-    paging = T,
-    responsive = T,
-    scrollX = T,
-    order = list(list(1, 'desc')))
+  output$full_table <- DT::renderDataTable({records}, 
+                            style="bootstrap4",
+                            rownames = FALSE, 
+                            options = list(
+                            paging = T,
+                            responsive = T,
+                            scrollX = T,
+                            order = list(list(1, 'desc')))
   )
+  
+  #Reactive Elements
   
   countryVar = reactive({
     mydata = records$Country
   })
-  observe({
-    updateSelectInput(session,
-      inputId = "countryselect",
-      label = "Choose a country",
-      selected = "India",
-      choices = countryVar()
-  )})
-  
-  observe({
-    updateSelectInput(session,
-        inputId = "countrySelectProgress",
-        label = "Choose Countries",
-        selected = "India",
-        choices = countryVar()
-    )})
-  
+
   data <- reactive({
     filter(records, Country == input$countryselect)
   })
@@ -261,20 +298,151 @@ server <- function(input, output, session) {
     filter(total_confirm_cases_by_day, `Country/Region` %in% input$countrySelectProgress)
   })
   
+  data_for_selected_country_dea <- reactive({
+    filter(total_death_cases_by_day, `Country/Region` %in% input$countrySelectProgress)
+  })
+  
+  data_for_cycle <- reactive({
+    t <- total_confirm_cases_by_day %>% 
+      filter(`Country/Region` == input$countrySelectCycle) %>%
+      group_by_('Date', input$timecycle) %>%
+      summarize(totalcase = sum(Total_Cases))
+    g <- t %>% group_by_(input$timecycle) %>% summarize(tot = max(totalcase)) %>%
+      mutate(d = tot -lag(tot), numb = row_number(tot))
+    g[1,3] = g[1,2]
+    g
+  })
+  
+  #Observe  Elements
+  observe({
+    updateSelectInput(session,
+                      inputId = "countryselect",
+                      label = "Choose a country",
+                      selected = "India",
+                      choices = countryVar()
+    )})
+  
+  observe({
+    updateSelectInput(session,
+                      inputId = "countrySelectProgress",
+                      label = "Choose Countries",
+                      selected = "India",
+                      choices = countryVar()
+    )})
+  
+  observe({
+    updateSelectInput(session,
+                      inputId = "countrySelectCycle",
+                      label = "Choose Country",
+                      selected = "India",
+                      choices = countryVar()
+    )})
+  
+  #Styling Elements
+  
+  plot_title_font_family <- list(family = 'Source Sans Pro,sans-serif', color='rgba(6, 6, 6, 0.45)')
+  plot_title_x_y <- data.frame(x = .5, y = .95)
+  plot_x_y_labels <- list(family = 'Source Sans Pro,sans-serif', color='rgba(6, 6, 6, 0.45)')
+
+  
+  
+  #Output Elements
+  
+  output$plot_by_coutry_total_death <- renderPlotly({
+    p_d <- data_for_selected_country_dea() %>%
+      plot_ly(x=~Date,y=~Total_Death, color = data_for_selected_country_dea()$`Country/Region`) %>% 
+      add_lines(line=list(width=2), text = c(''), hoverinfo = 'text', showlegend = F) %>% 
+      add_markers() %>%
+      layout(
+        annotations = list(x = 1.25, y = -0.1, text = "*Updates - Daily", 
+                           showarrow = F, xref='paper', yref='paper', 
+                           xanchor='right', yanchor='auto', xshift=10, yshift=0,
+                           font=list(size=10, color="#c9c9c9")),
+        title = list(text = paste0('Number of Deaths'), 
+                     font = plot_title_font_family,
+                     x = plot_title_x_y[['x']],
+                     xanchor= 'center',
+                     yanchor= 'top',
+                     y = plot_title_x_y[['y']]),
+        autosize = T,
+        xaxis = list(type = 'date', title = list(text=''), 
+                     tickfont = plot_x_y_labels,
+                     zeroline = FALSE,
+                     showgrid = FALSE),
+        yaxis = list(title = list(text = paste0('Count'), 
+                                  font = plot_title_font_family),
+                                  tickfont = plot_x_y_labels,
+                                  showgrid = FALSE),
+                     showlegend = T
+      )
+    p_d
+  })
+  
   output$plot_by_coutry_total_cases <- renderPlotly({
     p <- data_for_selected_country_p() %>%
             plot_ly(x=~Date,y=~Total_Cases, color = data_for_selected_country_p()$`Country/Region`) %>% 
-              add_lines(line=list(width=2)) %>% add_markers() %>%
+              add_lines(line=list(width=2), text = c(''), hoverinfo = 'text', showlegend = F) %>% 
+              add_markers() %>%
                 layout(
+                  annotations = list(x = 1.30, y = -0.1, text = "*Updates - Daily", 
+                                     showarrow = F, xref='paper', yref='paper', 
+                                     xanchor='right', yanchor='auto', xshift=0, yshift=0,
+                                     font=list(size=10, color="#c9c9c9")),
+                  title = list(text = paste0('Number of Cases'), 
+                               font = plot_title_font_family,
+                               x = plot_title_x_y[['x']],
+                               y = plot_title_x_y[['y']],
+                               xanchor= 'center',
+                               yanchor= 'top',
+                               pad = 10),
                   autosize = T,
-                  xaxis = list(type = 'date', title = ""),
-                  yaxis = list(title = "Frequency (Log Scale)", type="log"),
+                  xaxis = list(type = 'date', title = "", tickfont = plot_x_y_labels, showgrid = FALSE, zeroline = 0, showline = FALSE),
+                  yaxis = list(title = list(text = paste0('Count (Log Scale)'), 
+                                            font = plot_title_font_family), type="log", 
+                                            tickfont = plot_x_y_labels, showgrid = FALSE),
                   showlegend = T
                 )
-    #for(countr in data_for_country()$Country) {
-     # p <- p %>% add_trace(y=~Total_Cases, name = countr)
-    #}
     p
+  })
+  
+  output$plot_by_change <- renderPlotly({
+    x_to_draw <- if(input$timecycle == 'Weekly')
+                    "numb"
+                else if(input$timecycle == 'Monthly')
+                  "Monthly"
+    print(x_to_draw)
+    fig_cycle <- plot_ly(data = data_for_cycle(), x = ~get(x_to_draw), y = ~d, 
+                         type = 'waterfall',
+                         connector = list(line = list(color= "rgb(63, 63, 63)"))) %>%
+      layout(
+        annotations = list(x = 1, y = -0.1, text = "*Updates - Daily", 
+                          showarrow = F, xref='paper', yref='paper', 
+                          xanchor='right', yanchor='auto', xshift=0, yshift=0,
+                          font=list(size=10, color="#c9c9c9")),
+        title = list(text = 'Incremental Analysis',
+                     font = plot_title_font_family,
+                     x = plot_title_x_y[['x']],
+                     y = plot_title_x_y[['y']]),
+        xaxis = list(
+          pad = 10,
+          tickfont = plot_x_y_labels,
+          title = list(
+            text = paste0(
+            if(input$timecycle=='Weekly')
+              "Week"
+            else
+              "Month"
+          ),
+          font = plot_title_font_family)
+        ),
+        yaxis = list(
+          tickfont = plot_x_y_labels,
+          title = list(text = "Count",
+                       font = plot_title_font_family),
+          pad = 10
+        )
+      )
+    fig_cycle
   })
   
   
@@ -291,5 +459,3 @@ server <- function(input, output, session) {
 
 # Run the application 
 shinyApp(ui = ui, server = server)
-
-
